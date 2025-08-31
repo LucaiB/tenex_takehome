@@ -362,45 +362,6 @@ if (!event) {
 }
 ```
 
-## 🤝 Interview Discussion Points
-
-### Architecture Decisions
-1. **Why Ollama-only?** Privacy, cost control, no API rate limits
-2. **Modular design?** Testability, maintainability, separation of concerns
-3. **TypeScript?** Type safety, better IDE support, reduced runtime errors
-
-### Technical Challenges Solved
-1. **Date parsing**: Converting natural language to actual dates
-2. **Error handling**: Graceful degradation for missing data
-3. **Function calling**: Robust AI tool execution system
-4. **State management**: Complex calendar data synchronization
-
-### Scalability Considerations
-1. **Local AI processing**: Scales with user's hardware
-2. **Modular architecture**: Easy to add new features
-3. **Type safety**: Reduces bugs as codebase grows
-4. **Error boundaries**: Prevents cascading failures
-
-### Future Enhancements
-1. **Multi-calendar support**: Google, Outlook, Apple Calendar
-2. **Advanced AI models**: Larger Ollama models, custom fine-tuning
-3. **Mobile app**: React Native implementation
-4. **Team features**: Shared calendars, collaborative scheduling
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
-## 🆘 Support
-
-For technical questions or setup issues:
-1. Check this README thoroughly
-2. Review the browser console for error messages
-3. Verify all environment variables are set correctly
-4. Ensure Ollama is running and accessible
-
----
-
 **Built with ❤️ using React, TypeScript, Material-UI, and Ollama**
 
 *This take-home project demonstrates production-ready development practices, comprehensive error handling, and modern web application architecture.*
