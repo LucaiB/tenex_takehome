@@ -1,0 +1,435 @@
+import React, { useState, useEffect } from 'react';
+import './App.css';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { CommandParser } from './commandParser';
+import { FunctionCaller, getFunctionDefinitionsPrompt, extractFunctionCalls } from './functionCalling';
+
+const CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID 
+const API_KEY = process.env.REACT_APP_GOOGLE_API_KEY 
+const GCP_API_KEY = process.env.REACT_APP_GCP_API_KEY
+const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.compose';
+
+// Initialize Google Generative AI
+const genAI = GCP_API_KEY ? new GoogleGenerativeAI(GCP_API_KEY) : null;
+
+function App() {
+  const [gisLoaded, setGisLoaded] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [tokenClient, setTokenClient] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Initialize command parser
+  const commandParser = new CommandParser();
+
+  // Initialize Google Identity Services
+  useEffect(() => {
+    console.log('Initializing Google Identity Services...');
+    console.log('CLIENT_ID:', CLIENT_ID);
+    console.log('API_KEY:', API_KEY);
+    console.log('GCP_API_KEY available:', !!GCP_API_KEY);
+    console.log('genAI initialized:', !!genAI);
+    
+    if (window.google) {
+      console.log('Google Identity Services available');
+      setGisLoaded(true);
+      
+      // Initialize the token client
+      const client = window.google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (tokenResponse) => {
+          if (tokenResponse.error) {
+            console.error('Token error:', tokenResponse.error);
+            return;
+          }
+          console.log('Token received successfully');
+          setIsSignedIn(true);
+          // Store the access token for API calls
+          localStorage.setItem('access_token', tokenResponse.access_token);
+        },
+      });
+      setTokenClient(client);
+    } else {
+      console.log('Waiting for Google Identity Services to load...');
+      const checkGoogle = setInterval(() => {
+        if (window.google) {
+          console.log('Google Identity Services loaded');
+          setGisLoaded(true);
+          clearInterval(checkGoogle);
+          
+          const client = window.google.accounts.oauth2.initTokenClient({
+            client_id: CLIENT_ID,
+            scope: SCOPES,
+            callback: (tokenResponse) => {
+              if (tokenResponse.error) {
+                console.error('Token error:', tokenResponse.error);
+                return;
+              }
+              console.log('Token received successfully');
+              setIsSignedIn(true);
+              localStorage.setItem('access_token', tokenResponse.access_token);
+            },
+          });
+          setTokenClient(client);
+        }
+      }, 100);
+    }
+  }, []);
+
+  // Fetch upcoming events once the user is signed in and the client is ready.
+  useEffect(() => {
+    if (isSignedIn && gisLoaded) {
+      fetchUpcomingEvents();
+    }
+  }, [isSignedIn, gisLoaded]);
+
+  // Sign the user in with Google.
+  const handleSignIn = () => {
+    if (tokenClient) {
+      console.log('Requesting token...');
+      tokenClient.requestAccessToken();
+    } else {
+      console.error('Token client not initialized');
+    }
+  };
+
+  // Sign the user out of Google.
+  const handleSignOut = () => {
+    localStorage.removeItem('access_token');
+    setIsSignedIn(false);
+    setEvents([]);
+    setMessages([]);
+    setInput('');
+  };
+
+  // Fetch the next 10 upcoming events from the user's primary calendar.
+  const fetchUpcomingEvents = async () => {
+    const accessToken = localStorage.getItem('access_token');
+    if (!accessToken) {
+      console.error('No access token available');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+        `timeMin=${new Date().toISOString()}&maxResults=10&singleEvents=true&orderBy=startTime`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const upcoming = data.items || [];
+      setEvents(upcoming);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+    }
+  };
+
+  // Gmail API functions
+  const createEmailDraft = async (to, subject, body) => {
+    const accessToken = localStorage.getItem('access_token');
+    if (!accessToken) {
+      throw new Error('No access token available');
+    }
+
+    try {
+      const email = [
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        '',
+        body
+      ].join('\n');
+      
+      const response = await fetch(
+        'https://gmail.googleapis.com/gmail/v1/users/me/drafts',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: {
+              raw: btoa(email).replace(/\+/g, '-').replace(/\//g, '_')
+            }
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const draft = await response.json();
+      
+      // Redirect to Gmail drafts
+      window.open('https://mail.google.com/mail/u/0/#drafts');
+      return draft;
+    } catch (error) {
+      console.error('Error creating email draft:', error);
+      throw error;
+    }
+  };
+
+  const createMeetingFollowUp = async (eventTitle, attendeeEmail) => {
+    const subject = `Follow-up: ${eventTitle}`;
+    const body = `Hi ${attendeeEmail.split('@')[0]},\n\nThank you for attending our meeting about "${eventTitle}". I wanted to follow up on the key points we discussed:\n\n- [Key point 1]\n- [Key point 2]\n- [Action items]\n\nPlease let me know if you have any questions or if there's anything else you'd like to discuss.\n\nBest regards,\n[Your Name]`;
+    
+    return createEmailDraft(attendeeEmail, subject, body);
+  };
+
+  // Initialize function caller after functions are defined
+  const functionCaller = new FunctionCaller(createEmailDraft, createMeetingFollowUp);
+
+  // LLM integration with GCP as primary, Ollama as fallback
+  const callLLM = async (userMessage, context = '') => {
+    console.log('callLLM function started');
+    
+    const functionDefinitions = getFunctionDefinitionsPrompt();
+    const prompt = `You are a helpful calendar assistant with access to calendar functions.
+
+${functionDefinitions}
+
+User's question: "${userMessage}"
+
+${context ? `Context about their calendar: ${context}` : ''}
+
+If the user's request can be handled by one of the available functions, respond with a function call. Otherwise, provide a helpful, concise response about calendar management, email drafting, or productivity. Keep responses under 100 words.`;
+
+    console.log('Calling LLM with GCP available:', !!genAI);
+    console.log('Prompt:', prompt);
+
+    // Try GCP Generative AI first
+    if (genAI) {
+      try {
+        console.log('Attempting GCP Gemini AI...');
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        console.log('Model created, generating content...');
+        const result = await model.generateContent(prompt);
+        console.log('Content generated, getting response...');
+        const response = await result.response;
+        const responseText = response.text();
+        console.log('GCP response received successfully');
+        
+        // Check for function calls in the response
+        const functionCalls = extractFunctionCalls(responseText);
+        if (functionCalls.length > 0) {
+          console.log('Function calls detected:', functionCalls);
+          return { type: 'function_calls', calls: functionCalls, originalResponse: responseText };
+        }
+        
+        return responseText || 'I apologize, but I couldn\'t generate a response at the moment.';
+      } catch (error) {
+        console.error('GCP LLM failed with error:', error);
+        console.error('Error details:', {
+          message: error.message,
+          status: error.status,
+          code: error.code
+        });
+        // Fall through to Ollama
+      }
+    }
+
+    // Fallback to Ollama
+    console.log('Falling back to Ollama...');
+    try {
+      console.log('Making request to Ollama at http://localhost:11434/api/generate');
+      const response = await fetch('http://localhost:11434/api/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'llama3.1:8b', // or whatever model you have
+          prompt: prompt,
+          stream: false
+        }),
+      });
+
+      console.log('Ollama response status:', response.status);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Ollama HTTP error:', response.status, errorText);
+        throw new Error(`HTTP error! status: ${response.status}: ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('Ollama response:', data);
+      const responseText = data.response || 'I apologize, but I couldn\'t generate a response at the moment.';
+      
+      // Check for function calls in the response
+      const functionCalls = extractFunctionCalls(responseText);
+      if (functionCalls.length > 0) {
+        console.log('Function calls detected in Ollama response:', functionCalls);
+        return { type: 'function_calls', calls: functionCalls, originalResponse: responseText };
+      }
+      
+      return responseText;
+    } catch (error) {
+      console.error('Error calling Ollama LLM:', error);
+      if (error.message.includes('fetch')) {
+        return 'Ollama is not running locally. Please start Ollama or check if it\'s running on port 11434.';
+      }
+      return 'I\'m having trouble connecting to my AI assistant. Please try again later.';
+    }
+    
+    console.log('No LLM available, returning fallback message');
+    return 'I\'m sorry, but I\'m unable to process your request at the moment.';
+  };
+
+  // Handle sending a chat message with enhanced command parsing and function calling
+  const handleSend = async () => {
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    
+    console.log('handleSend called with:', trimmed);
+    console.log('Current messages:', messages);
+    
+    setIsLoading(true);
+    const newMessages = [...messages, { sender: 'user', text: trimmed }];
+    setMessages(newMessages);
+    setInput('');
+    
+    let reply = '';
+    
+    // First, try command parser for specific patterns
+    const intent = commandParser.parse(trimmed, events);
+    console.log('Parsed intent:', intent);
+    
+    if (intent.command !== 'general_question' && intent.handler) {
+      // Handle specific command patterns
+      const result = intent.handler(intent);
+      console.log('Command handler result:', result);
+      
+      if (result.type === 'function_call') {
+        // Execute function call
+        try {
+          await functionCaller.callFunction(result.function, result.parameters);
+          reply = result.successMessage;
+        } catch (error) {
+          reply = `Sorry, I couldn't execute that function. Error: ${error.message}`;
+        }
+      } else {
+        reply = result.content;
+      }
+    } else {
+      // Use LLM for general questions with function calling capability
+      console.log('No pattern match, calling LLM with function calling...');
+      const calendarContext = events.length > 0 
+        ? `You have ${events.length} upcoming events. Next event: ${events[0].summary}`
+        : 'No upcoming events found.';
+      
+      console.log('Calendar context:', calendarContext);
+      const llmResponse = await callLLM(trimmed, calendarContext);
+      console.log('LLM response received:', llmResponse);
+      
+      if (typeof llmResponse === 'object' && llmResponse.type === 'function_calls') {
+        // Handle function calls from LLM
+        console.log('Processing function calls from LLM:', llmResponse.calls);
+        const functionResults = [];
+        
+        for (const functionCall of llmResponse.calls) {
+          try {
+            const result = await functionCaller.callFunction(functionCall.function, functionCall.parameters);
+            functionResults.push(`Successfully executed ${functionCall.function}`);
+          } catch (error) {
+            functionResults.push(`Failed to execute ${functionCall.function}: ${error.message}`);
+          }
+        }
+        
+        reply = functionResults.join('\n');
+      } else {
+        reply = llmResponse;
+      }
+    }
+    
+    console.log('Final reply:', reply);
+    newMessages.push({ sender: 'agent', text: reply });
+    setMessages(newMessages);
+    setIsLoading(false);
+    console.log('Messages updated:', newMessages);
+  };
+
+  return (
+    <div className="App">
+      <h1>Calendar Assistant</h1>
+      {isSignedIn ? (
+        <button onClick={handleSignOut}>Sign out</button>
+      ) : (
+        <button onClick={handleSignIn} disabled={!gisLoaded}>
+          Sign in with Google
+        </button>
+      )}
+      {isSignedIn && (
+        <div>
+          <h2>Upcoming Events</h2>
+          {events.length === 0 ? (
+            <p>No upcoming events found.</p>
+          ) : (
+            <ul>
+              {events.map((event) => {
+                const start = event.start.dateTime || event.start.date;
+                const end = event.end.dateTime || event.end.date;
+                return (
+                  <li key={event.id}>
+                    <strong>{event.summary || '(No title)'}</strong>
+                    <br />
+                    {new Date(start).toLocaleString()} —{' '}
+                    {new Date(end).toLocaleString()}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      {isSignedIn && (
+        <div className="chat">
+          <h2>Chat with your calendar agent</h2>
+          <div className="chat-window">
+            {messages.map((msg, index) => (
+              <div key={index} className={msg.sender}>
+                {msg.text.split('\n').map((line, i) => (
+                  <span key={i}>
+                    {line}
+                    <br />
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="chat-input">
+            <input
+              type="text"
+              value={input}
+              placeholder="Ask me about your schedule..."
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleSend();
+                }
+              }}
+            />
+            <button onClick={handleSend} disabled={isLoading}>
+              {isLoading ? 'Thinking...' : 'Send'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default App;
