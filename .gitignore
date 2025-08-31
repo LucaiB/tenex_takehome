@@ -64,3 +64,9 @@ jspm_packages/
 
 # dotenv environment variables file
 .env
+
+# Temporary and debug files
+debug-*.js
+test-*.js
+temp-*.js
+*.debug.js
