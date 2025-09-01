@@ -1,4 +1,4 @@
-# 🚀 Quick Setup Checklist for Interviewers
+# 🚀 Quick Setup Checklist
 
 ## ✅ Pre-Setup (5 minutes)
 - [ ] **Node.js 18+** installed and verified
@@ -58,7 +58,3 @@
 - **TypeScript** usage and type safety
 - **Modular architecture** and separation of concerns
 ---
-
-**Total Setup Time: ~40 minutes**  
-**Difficulty: Beginner to Intermediate**  
-**Prerequisites: Basic command line knowledge**
