@@ -57,14 +57,6 @@
 - **Error handling** patterns throughout the codebase
 - **TypeScript** usage and type safety
 - **Modular architecture** and separation of concerns
-
-## 🎯 Interview Discussion Points
-- **Why Ollama-only?** Privacy, cost, no rate limits
-- **Architecture decisions** and trade-offs
-- **Error handling strategy** and user experience
-- **Scalability considerations** and future enhancements
-- **Technical challenges** solved during development
-
 ---
 
 **Total Setup Time: ~40 minutes**  
